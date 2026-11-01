@@ -13,7 +13,8 @@ Corrés sin supervisión humana. **No modifiques código.**
 4. Corré la suite de tests completa en esa misma rama.
 
 ## Entrega
-- Hallazgos 🔴 / críticos o tests que fallan → abrí un issue "Revisión diaria AAAA-MM-DD" con los hallazgos (archivo:línea, PR o commit de origen, sugerencia), con la etiqueta `bug` o `security` según corresponda.
+- Antes de abrir un issue, buscá con `gh` o las herramientas de GitHub de la sesión los que siguen abiertos de días anteriores (`gh issue list --state open --search "Revisión diaria in:title" --limit 50 --json number,title,body`). No repitas un hallazgo ni un test fallido que ya esté reportado ahí (mismo archivo y mismo problema). Si todo ya está reportado, comentá en el issue más reciente que sigue vigente, en vez de abrir otro. Si no podés consultar los issues, abrí el issue igual y aclaralo en la primera línea.
+- Hallazgos 🔴 / críticos o tests que fallan, que no estén reportados → abrí un issue "Revisión diaria AAAA-MM-DD" con los hallazgos (archivo:línea, PR o commit de origen, sugerencia), con la etiqueta `bug` o `security` según corresponda.
 - Solo hallazgos menores → listalos en el resumen de la sesión, sin crear issue.
 - Nada → terminá sin crear nada.
 
