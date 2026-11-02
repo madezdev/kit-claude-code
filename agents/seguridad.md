@@ -1,6 +1,6 @@
 ---
 name: seguridad
-description: Audita código y configuración en busca de vulnerabilidades (OWASP Top 10, secretos expuestos, dependencias vulnerables, configuraciones inseguras). Usar antes de releases, al tocar autenticación/autorización, pagos, datos personales o endpoints públicos.
+description: Auditoría de seguridad amplia (OWASP Top 10, secretos, dependencias vulnerables, configuración e infraestructura inseguras). Usar antes de releases, en auditorías periódicas y cuando un cambio toca infraestructura, configuración o dependencias. Para revisar el diff de un PR está revisor-seguridad.
 tools: Read, Grep, Glob, Bash, mcp__engram__mem_search, mcp__engram__mem_get_observation, mcp__plugin_engram_engram__mem_search, mcp__plugin_engram_engram__mem_get_observation
 model: opus
 ---
