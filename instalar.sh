@@ -3,6 +3,8 @@
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 C="$HOME/.claude"
+# Antes de copiar nada: un settings.json inválido dejaría la instalación a medias.
+node "$DIR/lib/fusionar.js" validar "$C/settings.json"
 mkdir -p "$C/agents" "$C/hooks" "$C/skills"
 
 source "$DIR/lib/copiar.sh"
@@ -10,8 +12,8 @@ copiar_administrados "$DIR" "$C"
 cp "$DIR"/hooks/*.js "$C/hooks/"
 echo "✓ $(ls "$DIR"/agents/*.md | wc -l | tr -d ' ') agentes y $(ls -d "$DIR"/skills/*/ | wc -l | tr -d ' ') skills en $C"
 
-echo "→ Tests de hooks..."
-node "$C/hooks/test-guardia.js" && node "$C/hooks/test-tamanio.js"
+echo "→ Tests de hooks e instalador..."
+node "$C/hooks/test-guardia.js" && node "$C/hooks/test-tamanio.js" && node "$DIR/lib/test-fusionar.js"
 
 [ -f "$C/CLAUDE.md" ] && cp "$C/CLAUDE.md" "$C/CLAUDE.md.bak"
 node "$DIR/lib/fusionar.js" bloque "$C/CLAUDE.md" "$DIR/CLAUDE.global.md" kit-claude-code

@@ -9,6 +9,8 @@ Requisitos (una sola vez):
 
 Los mensajes de las routines los firma tu usuario de GitHub. Las ejecuciones cuentan contra tu uso y hay un tope diario de corridas.
 
+Las routines no tienen engram: es un servidor MCP local y la nube no lo ve. La regla de memoria del kit (en el CLAUDE.md del repo) indica seguir sin memoria cuando no está. Para no duplicar trabajo, las skills usan GitHub como fuente de verdad: antes de crear algo, revisan los PRs, los issues y las revisiones anteriores.
+
 ---
 
 ## 1. Revisión de PR

@@ -12,6 +12,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { execFileSync } = require("child_process");
 
 const LOG = path.join(os.homedir(), ".claude", "hooks", "guardia.log");
 
@@ -66,9 +67,7 @@ const REGLAS_BASH = [
   { re: /\b(npm|pnpm|yarn)\s+publish\b|\bcargo\s+publish\b|\btwine\s+upload\b|\bgh\s+release\s+create\b/, msg: "Publicación de paquete/release." },
   { re: /\bvercel\b.*--prod\b|\bnetlify\s+deploy\b.*--prod\b|\bfirebase\s+deploy\b|\bfly\s+deploy\b|\bwrangler\s+(deploy|publish)\b/, msg: "Deploy a producción." },
 
-  // --- Git ---
-  { re: /\bgit\s+push\b.*(\s-f\b|--force(?!-with-lease)\b|\s\+\S)/, msg: "git push --force. Usá --force-with-lease si es tu rama." },
-  { re: /\bgit\s+push\b.*[\s:](main|master|develop|dev|prod|production|release)(\s|$)/, msg: "Push directo a rama protegida. Usá un PR." },
+  // --- Git (git push se analiza aparte, en revisarGit) ---
   { re: /\bgh\s+pr\s+review\b.*(--approve|-a\b|--request-changes|-r\b)/, msg: "Aprobar o rechazar PRs es decisión humana. Usá --comment." },
   { re: /\bgh\s+pr\s+merge\b|\baz\s+repos\s+pr\s+update\b.*(--status\s+completed|--auto-complete\s+true)/, msg: "Merge de PR: lo hace el humano después de revisar." },
   { re: /\bgit\s+reset\s+--hard\b|\bgit\s+clean\s+-\w*f/, msg: "Descarta trabajo no commiteado (riesgoso con agentes en paralelo)." },
@@ -107,11 +106,139 @@ function revisarArchivo(tool, filePath) {
   return null;
 }
 
-function revisarBash(cmd) {
+/** contexto (opcional): { cwd, rama, ramaEn(dir) } para evaluar los git push contra la rama actual. */
+function revisarBash(cmd, contexto) {
   for (const r of REGLAS_BASH) {
     if (r.re.test(cmd) && !(r.allow && r.allow.test(cmd))) return r.msg;
   }
+  return revisarGit(cmd, contexto);
+}
+
+// ---------------------------------------------------------------------------
+// git push: el comando se analiza por segmentos (&&, ||, ;, |, saltos de línea,
+// subshells y $(...)) siguiendo la rama actual, que cambia con checkout/switch,
+// cd/pushd y git -C. Sin rama conocida, solo se revisan los destinos explícitos.
+// ---------------------------------------------------------------------------
+const RAMA_PROTEGIDA = /^(main|master|develop|dev|prod|production|release)$/;
+const OPCIONES_CON_VALOR = new Set(["-o", "--push-option", "--repo", "--receive-pack", "--exec", "--recurse-submodules"]);
+const CREAR_RAMA = new Set(["-b", "-B", "-c", "-C", "--create", "--force-create", "--orphan"]);
+const MSG_FORCE = "git push --force. Usá --force-with-lease si es tu rama.";
+const MSG_VARIAS = "git push que abarca varias ramas (--all, --branches, --mirror, ':' o '*'), incluidas las protegidas. Empujá solo tu rama.";
+
+/** Parte el comando en segmentos sin cortar dentro de comillas. */
+function segmentos(cmd) {
+  const s = cmd.replace(/\\\n/g, " "), out = [];
+  let actual = "", comilla = null;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (comilla) { actual += c; if (c === comilla) comilla = null; continue; }
+    if (c === "'" || c === '"') { comilla = c; actual += c; continue; }
+    const doble = (c === "&" || c === "|") && s[i + 1] === c, sustitucion = c === "$" && s[i + 1] === "(";
+    if (doble || sustitucion || ";|\n()`".includes(c)) {
+      out.push(actual);
+      actual = "";
+      if (doble || sustitucion) i++;
+      continue;
+    }
+    actual += c;
+  }
+  return [...out, actual];
+}
+
+/** Tokens de un segmento, sin comillas ni redirecciones (2>&1, > archivo, &>/dev/null). */
+function tokens(segmento) {
+  const crudos = segmento.match(/(?:[^\s'"]+|'[^']*'|"[^"]*")+/g) || [];
+  const t = [];
+  for (let i = 0; i < crudos.length; i++) {
+    if (/^(\d*>>?|&>>?|<)$/.test(crudos[i])) i++; // operador suelto: se saltea también su archivo
+    else if (!/^(\d*>>?|&>>?|<|\d*>&)/.test(crudos[i])) t.push(crudos[i].replace(/['"]/g, ""));
+  }
+  return t;
+}
+
+/** Rama destino de un refspec ("HEAD:refs/heads/main" → "main", "feat/x:" → "feat/x"); null = la rama actual; "" = ":" (todas). */
+function destino(refspec) {
+  if (/\$\(|`/.test(refspec)) return null; // $(git branch --show-current) y similares
+  const [src, dst] = refspec.split(":");
+  const rama = (dst || src).replace(/^refs\/heads\//, "");
+  return rama === "HEAD" || rama === "@" ? null : rama;
+}
+
+function revisarPush(args, rama) {
+  if (args.some((a) => /^--(all|branches|mirror)$/.test(a))) return MSG_VARIAS;
+  if (args.some((a) => a === "--force" || /^-[a-z]*f[a-z]*$/.test(a))) return MSG_FORCE;
+  const posicionales = [];
+  for (let i = 0; i < args.length; i++) {
+    if (OPCIONES_CON_VALOR.has(args[i])) i++;
+    else if (!args[i].startsWith("-")) posicionales.push(args[i]);
+  }
+  const refspecs = posicionales.slice(1); // el primero es el remoto
+  if (!refspecs.length && args.includes("--tags")) return null;
+  for (const r of refspecs.length ? refspecs : ["HEAD"]) {
+    if (r.startsWith("+")) return MSG_FORCE;
+    const dst = destino(r);
+    if (dst === "" || dst?.includes("*")) return MSG_VARIAS;
+    if (dst && RAMA_PROTEGIDA.test(dst)) return "Push directo a rama protegida. Usá un PR.";
+    if (dst === null && rama && RAMA_PROTEGIDA.test(rama))
+      return `git push sin rama explícita estando en ${rama}: empujaría una rama protegida. Creá una rama y usá un PR. ` +
+        `Si cambiaste de rama en el mismo comando, nombrala: git push -u origin <rama>.`;
+  }
   return null;
+}
+
+/** Rama después de un checkout/switch. checkout también recibe archivos: sin -b, solo cuenta si es una rama protegida. */
+function ramaTrasCambio(sub, args, rama) {
+  if (args.includes("--detach") || args.includes("-")) return null;
+  const conIgual = args.find((a) => /^--(create|force-create|orphan)=/.test(a));
+  if (conIgual) return conIgual.split("=")[1] || null;
+  const i = args.findIndex((a) => CREAR_RAMA.has(a));
+  if (i >= 0) return args[i + 1] || null;
+  const track = args.findIndex((a) => a === "-t" || /^--track(=|$)/.test(a));
+  if (track >= 0) {
+    const remota = args.slice(track + 1).find((a) => !a.startsWith("-")); // origin/main → main
+    return remota ? remota.replace(/^[^/]+\//, "") : null;
+  }
+  const x = args.find((a) => !a.startsWith("-"));
+  if (!x || args.includes("--")) return rama;
+  return sub === "switch" || RAMA_PROTEGIDA.test(x) ? x : rama;
+}
+
+function revisarGit(cmd, { cwd = process.cwd(), rama = null, ramaEn = () => null } = {}) {
+  let dir = cwd;
+  for (const segmento of segmentos(cmd)) {
+    let t = tokens(segmento);
+    while (t.length && /^\w+=/.test(t[0])) t = t.slice(1); // VAR=valor git ...
+    if (t[0] === "popd" || (["cd", "pushd"].includes(t[0]) && t[1] === "-")) { rama = null; continue; }
+    if (t[0] === "cd" || t[0] === "pushd") {
+      dir = path.resolve(dir, (t[1] || "~").replace(/^~/, os.homedir()));
+      rama = ramaEn(dir);
+      continue;
+    }
+    let i = t.indexOf("git"); // también con prefijos: timeout 60 git, sudo git, env X=1 git, ! git
+    if (i < 0) continue;
+    let ramaSegmento = rama, otroRepo = false;
+    for (i++; t[i]?.startsWith("-"); i++) {
+      if (t[i] === "-C") { ramaSegmento = ramaEn(path.resolve(dir, t[++i] || ".")); otroRepo = true; }
+      else if (/^--(git-dir|work-tree)(=|$)/.test(t[i])) { ramaSegmento = null; otroRepo = true; if (!t[i].includes("=")) i++; }
+      else if (t[i] === "-c" || t[i] === "--namespace") i++;
+    }
+    const sub = t[i], args = t.slice(i + 1);
+    if ((sub === "checkout" || sub === "switch") && !otroRepo) rama = ramaTrasCambio(sub, args, rama);
+    if (sub === "push") {
+      const motivo = revisarPush(args, ramaSegmento);
+      if (motivo) return motivo;
+    }
+  }
+  return null;
+}
+
+function ramaActual(cwd) {
+  try {
+    // symbolic-ref: anda en ramas sin commits y en cualquier versión de git; falla si HEAD está desacoplado.
+    return execFileSync("git", ["symbolic-ref", "--short", "-q", "HEAD"], { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 3000 }).trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 function log(linea) {
@@ -152,8 +279,12 @@ if (require.main === module) {
     const ti = data.tool_input || {};
     let motivo = null;
 
-    if (tool === "Bash") motivo = revisarBash(ti.command || "");
-    else if (["Read", "Edit", "Write", "MultiEdit", "NotebookEdit"].includes(tool))
+    if (tool === "Bash") {
+      const cmd = ti.command || "";
+      const cwd = data.cwd || process.cwd();
+      const hayPush = /\bpush\b/.test(cmd); // git solo se consulta si hace falta
+      motivo = revisarBash(cmd, { cwd, rama: hayPush ? ramaActual(cwd) : null, ramaEn: hayPush ? ramaActual : () => null });
+    } else if (["Read", "Edit", "Write", "MultiEdit", "NotebookEdit"].includes(tool))
       motivo = revisarArchivo(tool, ti.file_path || ti.notebook_path);
 
     if (motivo) {

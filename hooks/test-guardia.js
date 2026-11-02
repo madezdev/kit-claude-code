@@ -68,6 +68,8 @@ const bloquear = [
   "gh pr review 12 --request-changes -b 'x'",
   "az repos pr update --id 12 --status completed",
   "az repos pr update --id 12 --auto-complete true",
+  "git push --all origin",
+  "git push --mirror origin",
 ];
 
 const permitir = [
@@ -123,12 +125,82 @@ const permitir = [
 const archivosBloq = [["Read", "/repo/.env"], ["Edit", "/repo/apps/api/.env.local"], ["Read", "C:\\repo\\.env.production"], ["Read", "/home/m/.ssh/id_ed25519"], ["Read", "/repo/infra/terraform.tfstate"], ["Write", "/repo/certs/server.key"]];
 const archivosOk = [["Read", "/repo/.env.example"], ["Edit", "/repo/src/env.ts"], ["Read", "/repo/apps/web/next.config.js"], ["Write", "/repo/docs/environment.md"]];
 
+// git push según la rama actual: [comando, rama actual, ¿bloquea?]
+const conRama = [
+  ["git push", "main", true],
+  ["git push -u origin HEAD", "develop", true],
+  ["git push origin", "master", true],
+  ["git push --force-with-lease", "main", true],
+  ["git push origin @", "main", true],
+  ["git push --tags origin HEAD", "main", true],
+  ["git add -A\ngit commit -m x\ngit push\necho ok", "main", true],
+  ["git push origin $(git branch --show-current)", "main", true],
+  ["git push -o ci.skip origin", "main", true],
+  ["git push origin feat/x && git push", "main", true],
+  ["git checkout main && git merge feat/x && git push", "feat/x", true],
+  ["cd ../wt-main && git push", "feat/x", true],
+  ["git push origin HEAD:refs/heads/main", "feat/x", true],
+  ["git push origin 'main'", "feat/x", true],
+  ["git push origin main;", "feat/x", true],
+  ["git -C ../otro push origin main", "feat/x", true],
+  ["git push origin 'refs/heads/*'", "feat/x", true],
+  ["git push origin :", "feat/x", true],
+  ["git push --branches", "feat/x", true],
+  ["git push -fu origin feat/x", "feat/x", true],
+  ["timeout 60 git push origin main", "feat/x", true],
+  ["sudo git push origin main", "feat/x", true],
+  ["env GIT_TRACE=1 git push origin main", "feat/x", true],
+  ["out=$(git push origin main 2>&1)", "feat/x", true],
+  ['GIT_SSH_COMMAND="ssh -i k" git push origin main', "feat/x", true],
+  ["time git push --force origin feat/x", "feat/x", true],
+  ["! git push --force origin feat/x", "feat/x", true],
+  ["if true; then git push origin main; fi", "feat/x", true],
+  ["(git push origin main)", "feat/x", true],
+  ["(cd ../wt-main && git push)", "feat/x", true],
+  ["git --no-pager push origin main", "feat/x", true],
+  ["git push origin 2>&1 | tail -5", "main", true],
+  ["git push origin > /tmp/log 2>&1", "main", true],
+  ["git push origin &>/dev/null", "main", true],
+  ["git push \\\n  origin main", "feat/x", true],
+  ['git push origin HEAD:"main"', "feat/x", true],
+  ["git checkout --track origin/main && git push", "feat/x", true],
+  ["git switch -t origin/develop && git push", "feat/x", true],
+  ["git push --recurse-submodules check origin", "main", true],
+  ["pushd ../wt-main && git push", "feat/x", true],
+  ["git push", "feat/x", false],
+  ["git switch --create=feat/x && git push -u origin HEAD", "main", false],
+  ['git commit -m "fix; git push"', "main", false],
+  ['echo "git push origin main"', "feat/x", false],
+  ["git push origin feat/x 2>&1 | tail -5", "main", false],
+  ["git push -u origin HEAD 2>&1", "feat/x", false],
+  ["git push origin feat/x:", "main", false],
+  ["git push origin --delete feat/x", "main", false],
+  ["git stash push -m wip && git switch -c feat/x", "main", false],
+  ["git push origin feat/x", "main", false],
+  ["git push -u origin HEAD", "fix/carta", false],
+  ["git push --tags", "main", false],
+  ["git push", null, false],
+  ["git switch -c feat/x && git push -u origin HEAD", "main", false],
+  ["git checkout -b fix/y && git push -u origin HEAD", "main", false],
+  ["cd ../wt-feat && git push", "main", false],
+  ["git push -u origin feat/x && git log --oneline --all", "feat/x", false],
+  ["gh issue create --title x --body 'correr git push origin'", "main", false],
+  ["git commit -m 'docs: explicar git push'", "main", false],
+  ["git status", "main", false],
+];
+const worktrees = { "/r/wt-main": "main", "/r/wt-feat": "feat/y" };
+const contexto = (rama) => ({ cwd: "/r/repo", rama, ramaEn: (dir) => worktrees[dir] ?? null });
+
 let fallos = 0;
 for (const c of bloquear) if (!revisarBash(c)) { fallos++; console.log("❌ NO bloqueó:  ", c); }
 for (const c of permitir) { const m = revisarBash(c); if (m) { fallos++; console.log("❌ Bloqueó mal: ", c, "→", m); } }
 for (const [t, f] of archivosBloq) if (!revisarArchivo(t, f)) { fallos++; console.log("❌ NO bloqueó:  ", t, f); }
 for (const [t, f] of archivosOk) if (revisarArchivo(t, f)) { fallos++; console.log("❌ Bloqueó mal: ", t, f); }
+for (const [c, r, debe] of conRama) {
+  const m = revisarBash(c, contexto(r));
+  if (!!m !== debe) { fallos++; console.log(debe ? "❌ NO bloqueó:  " : "❌ Bloqueó mal: ", JSON.stringify(c), `(en ${r})`, m || ""); }
+}
 
-const total = bloquear.length + permitir.length + archivosBloq.length + archivosOk.length;
+const total = bloquear.length + permitir.length + archivosBloq.length + archivosOk.length + conRama.length;
 console.log(fallos ? `\n${fallos} fallos de ${total}` : `✅ ${total}/${total} casos OK`);
 process.exit(fallos ? 1 : 0);
