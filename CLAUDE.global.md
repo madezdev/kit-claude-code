@@ -10,12 +10,17 @@ Para tareas no triviales, delegá en los subagentes de ~/.claude/agents:
 4. **tester** → tests de lo implementado.
 5. **refactorizador** → si quedó código duplicado o archivos/funciones que superan los límites.
 6. **qa-revisor** → revisión final. Si el veredicto es ❌, corregí y volvé a revisar.
-7. **seguridad** → si se tocó auth, pagos, datos personales, endpoints públicos o infraestructura.
+7. **Seguridad antes del PR**, siempre que cambie código: los chequeos mecánicos (`seguridad.sh` y `lint-cambios.js`, en `.claude/checks/` o, con la instalación global, en `~/.claude/checks/`) y **revisor-seguridad** sobre el diff, más **multitenant** si el proyecto lo tiene y el cambio toca datos. Una Crítica o Alta frena el PR. **seguridad** queda para auditorías amplias: infraestructura, configuración, dependencias y releases.
 8. **documentador** → si cambió la API, comandos, arquitectura o setup.
-9. **git** → commits atómicos y PR, solo después de que qa-revisor apruebe.
+9. **git** → commits atómicos y PR, solo después de que qa-revisor y revisor-seguridad aprueben. El hook pre-PR vuelve a correr los chequeos y bloquea si fallan.
 
 Ante cualquier error o test que falla → **depurador**.
-Cambios chicos (un archivo, un fix obvio): implementá, qa-revisor y git.
+Cambios chicos (un archivo, un fix obvio): implementá, qa-revisor, revisor-seguridad y git.
+
+## Criterio
+- **Patrones de diseño** solo ante una necesidad concreta y presente, y justificados en la descripción del PR. Nada especulativo ("por si después…").
+- **Comentarios** solo para explicar el porqué. Sin código comentado: lo viejo queda en git.
+- **Diff mínimo**: tocá solo lo que la tarea necesita, sin reformateos ni mejoras de paso. En tareas medianas, un plan corto (3 a 5 pasos) antes de implementar.
 
 ## Coordinación (sin trabajo duplicado ni pisado)
 - Dos agentes en paralelo nunca editan los mismos archivos: el plan del arquitecto asigna archivos a cada uno, y si dos partes se superponen, van en secuencia.
@@ -31,11 +36,13 @@ Si la sesión tiene las herramientas `mem_*` de engram, usalas. Si no las tiene 
 - La memoria es contexto, no verdad: si menciona un archivo, una función o un flag, verificá que siga existiendo.
 
 ## Calidad de código (aplica a todos los agentes)
-- **No repetir código**: antes de crear una función, componente, hook, util o tipo, buscá si ya existe algo igual o parecido y reutilizalo.
-- **Tamaño**: archivos ≤ 400 líneas (500 tope absoluto, tests hasta 600), funciones ≤ ~50 líneas, máximo 3 niveles de anidamiento. Un hook avisa automáticamente si un archivo se pasa.
+- **Reutilizá antes de crear**: antes de una función, componente, hook, util o tipo nuevo, buscá si ya existe algo igual o parecido.
+- **Límites**, que hacen cumplir los hooks y ESLint (solo frenan lo nuevo: el código viejo pasa mientras no empeore):
+  - Archivos: aviso a las 400 líneas y bloqueo a las 600 (en tests, 600 y 800).
+  - Funciones: hasta 60 líneas (apuntá a ~50), complejidad hasta 10, anidamiento hasta 4 (apuntá a 3).
+  - Cada proyecto los ajusta en `.claude/limites.json`. Nada de `eslint-disable` para esquivarlos.
 - **Componentes y módulos chicos** con una sola responsabilidad: subcomponentes, custom hooks, servicios y utilidades en archivos propios.
 - Nombres que expliquen la intención; early returns en vez de ifs anidados.
-- Los proyectos pueden ajustar límites en `.claude/limites.json`.
 
 ## Reglas generales
 - Cada proyecto define en su CLAUDE.md la **rama de integración** (destino de los PRs, ej. develop). Sin push directo a ella ni a main.

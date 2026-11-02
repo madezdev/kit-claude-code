@@ -9,7 +9,7 @@ Corrés sin supervisión humana. **No modifiques código.**
 
 1. `git fetch` y `git log --since="24 hours ago" --first-parent` sobre la rama de integración del proyecto (la que el CLAUDE.md indica como destino de los PRs; si no indica ninguna, la rama por defecto). Si no hay commits, terminá sin hacer nada.
 2. Juntá el diff acumulado de esos commits.
-3. Delegá en paralelo **seguridad**, **multitenant** (si existe) y **qa-revisor** sobre ese diff. Es una segunda red: buscá lo que se pudo escapar en la revisión de cada PR (interacciones entre PRs, configuración, secretos).
+3. Delegá en paralelo **revisor-seguridad**, **multitenant** (si existe) y **qa-revisor** sobre ese diff, y **seguridad** si el diff toca configuración, dependencias o infraestructura. Es una segunda red: buscá lo que se pudo escapar en la revisión de cada PR (interacciones entre PRs, configuración, secretos).
 4. Corré la suite de tests completa en esa misma rama.
 
 ## Entrega

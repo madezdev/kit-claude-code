@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Corré: node test-guardia.js   (después de editar reglas, para no romper nada)
-const { revisarBash, revisarArchivo } = require("./guardia.js");
+const { revisarBash, revisarArchivo, REGLAS_BASH } = require("./guardia.js");
 
 const bloquear = [
   "terraform apply -auto-approve",
@@ -201,6 +201,12 @@ for (const [c, r, debe] of conRama) {
   if (!!m !== debe) { fallos++; console.log(debe ? "❌ NO bloqueó:  " : "❌ Bloqueó mal: ", JSON.stringify(c), `(en ${r})`, m || ""); }
 }
 
-const total = bloquear.length + permitir.length + archivosBloq.length + archivosOk.length + conRama.length;
+// Cada regla tiene un id único: es lo que se registra en Jarvis
+const ids = REGLAS_BASH.map((r) => r.id);
+if (ids.some((id) => !/^[a-z0-9-]+$/.test(id || "")) || new Set(ids).size !== ids.length) { fallos++; console.log("❌ ids de reglas faltantes o repetidos"); }
+const conId = [...bloquear.map((c) => revisarBash(c)), ...archivosBloq.map(([t, f]) => revisarArchivo(t, f))];
+if (conId.some((m) => m && !m.id)) { fallos++; console.log("❌ un bloqueo sin id"); }
+
+const total = bloquear.length + permitir.length + archivosBloq.length + archivosOk.length + conRama.length + 2;
 console.log(fallos ? `\n${fallos} fallos de ${total}` : `✅ ${total}/${total} casos OK`);
 process.exit(fallos ? 1 : 0);

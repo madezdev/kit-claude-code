@@ -36,23 +36,31 @@ Según el plan → **backend**, **frontend**, **infraestructura** (o los especí
 ## 5. Calidad
 - **refactorizador** si quedaron archivos > 400 líneas, funciones largas o código duplicado.
 - **qa-revisor** sobre el diff completo.
-- **seguridad** si se tocó auth, permisos, pagos, datos personales, endpoints públicos o infraestructura.
-- **multitenant** (si existe en el proyecto) si se tocaron datos, endpoints, caché o eventos.
 
-Si alguno da ❌ o hallazgos 🔴 / críticos → el agente que corresponda los corrige → repetí esta fase. Máximo 3 vueltas; si sigue fallando, frená y explicame qué pasa.
+Si da ❌ o hallazgos 🔴 → el agente que corresponda los corrige → repetí esta fase. Máximo 3 vueltas; si sigue fallando, frená y explicame qué pasa.
 
-## 6. Documentación
+## 6. Seguridad antes del PR
+Siempre que el diff cambie código (si es solo documentación, salteala). Commiteá antes: los chequeos comparan contra la rama base.
+- **Mecánicos**: `seguridad.sh <rama-base>` (pnpm audit, Semgrep, gitleaks) y `node lint-cambios.js <rama-base>` (ESLint del proyecto sobre lo commiteado). Están en `.claude/checks/` o, con la instalación global, en `~/.claude/checks/`.
+- En paralelo:
+  - **revisor-seguridad** sobre el diff: tenants, webhooks de pago, autorización en Nest, inputs.
+  - **multitenant** (si existe en el proyecto), si se tocaron datos, endpoints, caché o eventos.
+  - **seguridad**, solo si se tocó infraestructura, configuración o dependencias.
+
+Un chequeo que falla o un hallazgo Crítico o Alto → el agente que corresponda lo corrige → repetí esta fase (máximo 3 vueltas). No sigas a la entrega con algo de esto pendiente: el hook pre-PR lo bloquearía igual.
+
+## 7. Documentación
 **documentador** si cambiaron APIs, comandos, variables de entorno o arquitectura.
 
-## 7. Entrega
-**git**: commits atómicos y PR (draft si quedó algo pendiente). Si la rama ya tenía un PR abierto, se actualiza ese.
+## 8. Entrega
+**git**: commits atómicos y PR (draft si quedó algo pendiente). Si la rama ya tenía un PR abierto, se actualiza ese. Si se introdujo un patrón de diseño, la descripción dice cuál y qué necesidad concreta lo justifica.
 
 ## Resumen final
 Antes de mostrarlo, si hay engram: guardá con `mem_save` lo que los agentes marcaron **Para memoria**, valga la pena y no hayas guardado ya, y cerrá con `mem_session_summary`.
 
 - Link del PR
 - Qué se hizo, en 3 a 5 líneas
-- Resultado de cada revisión (qa, seguridad, multitenant)
+- Resultado de cada revisión (qa, chequeos mecánicos, revisor-seguridad, multitenant)
 - Pendientes, riesgos y cosas para probar a mano
 - Pasos manuales (variables de entorno nuevas, migraciones, comandos de infra que tenga que ejecutar yo)
 

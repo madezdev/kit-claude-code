@@ -1,86 +1,88 @@
 #!/usr/bin/env node
 /**
- * tamanio.js — Hook PostToolUse para Claude Code.
+ * tamanio.js — Hook de tamaño de archivos para Claude Code (PreToolUse y PostToolUse).
  *
- * Después de cada Write/Edit, cuenta las líneas del archivo. Si un archivo de
- * código supera el límite, le avisa a Claude (exit 2 → el mensaje le llega
- * como feedback) para que lo divida en piezas más chicas.
+ * - PreToolUse (Write/Edit/MultiEdit): calcula cuántas líneas tendría el archivo y
+ *   bloquea (exit 2) si pasa el máximo (600 en código, 800 en tests). El bloqueo
+ *   se registra en jarvis-brain.
+ * - PostToolUse: si el archivo pasa el aviso (400 en código, 600 en tests), le pide
+ *   a Claude que lo divida (exit 2 → el mensaje le llega como feedback).
  *
- * Archivos legacy que ya eran grandes: solo avisa si la edición los hizo crecer.
- *
- * Límites configurables por proyecto con un archivo .claude/limites.json:
- *   { "codigo": 400, "tests": 600, "ignorar": ["src/legacy/"] }
+ * Archivos legacy que ya eran grandes: solo cuenta si la edición los hizo crecer.
+ * Límites por proyecto en .claude/limites.json (ver comun.js).
  */
-const fs = require("fs");
 const path = require("path");
-const os = require("os");
+const {
+  LIMITES, EXT_CODIGO, raizDe, cargarLimites, esTest, ignorado, contarLineas, leerArchivo,
+  contenidoResultante, cederAlProyecto, leerEntrada,
+} = require("./comun.js");
+const { registrarBloqueo } = require("./jarvis.js");
 
-const DEFAULTS = { codigo: 400, tests: 600, ignorar: [] };
+const COMO_DIVIDIR =
+  "extraé subcomponentes, hooks, servicios, utilidades o tipos a archivos propios, sin cambiar el comportamiento " +
+  "y manteniendo los exports públicos. Si es un refactor grande, delegalo al agente refactorizador.";
 
-const EXT_CODIGO = /\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte|py|go|rs|java|kt|cs|php|rb|swift|scss|css)$/i;
-const ES_TEST = /(\.|_)(test|spec|e2e)\.\w+$|[\/\\](__tests__|tests?|e2e)[\/\\]/i;
-const IGNORAR_SIEMPRE = /[\/\\](node_modules|dist|build|\.next|coverage|vendor|generated|__generated__|migrations?)[\/\\]|\.d\.ts$|\.min\.\w+$|\.(gen|generated)\.\w+$/i;
-
-function cargarConfig(cwd) {
-  try {
-    const f = path.join(cwd || process.cwd(), ".claude", "limites.json");
-    return { ...DEFAULTS, ...JSON.parse(fs.readFileSync(f, "utf8")) };
-  } catch {
-    return DEFAULTS;
-  }
+/**
+ * { nivel: "aviso" | "bloqueo", limite } o null. `crecio` indica si la edición sumó líneas;
+ * `raiz` es la del proyecto (los patrones de tests e ignorados se aplican relativos a ella).
+ */
+function evaluar(filePath, lineas, crecio, limites = LIMITES, raiz) {
+  const l = { ...LIMITES, ...limites };
+  if (!EXT_CODIGO.test(filePath) || ignorado(filePath, l, raiz) || !crecio) return null;
+  const test = esTest(filePath, raiz);
+  const aviso = test ? l.tests : l.codigo, maximo = test ? l.testsMax : l.codigoMax;
+  if (lineas > maximo) return { nivel: "bloqueo", limite: maximo };
+  if (lineas > aviso) return { nivel: "aviso", limite: aviso, maximo };
+  return null;
 }
 
-const contar = (txt) => (txt ? txt.replace(/\n$/, "").split("\n").length : 0);
+function antesDeEscribir(data, limites, raiz) {
+  const tool = data.tool_name, ti = data.tool_input || {};
+  if (!ti.file_path || !["Write", "Edit", "MultiEdit"].includes(tool)) return 0;
+  const actual = leerArchivo(ti.file_path);
+  const nuevo = contenidoResultante(tool, ti, actual);
+  if (nuevo == null) return 0;
+  const lineas = contarLineas(nuevo);
+  const r = evaluar(ti.file_path, lineas, lineas > contarLineas(actual), limites, raiz);
+  if (r?.nivel !== "bloqueo") return 0;
+  const motivo = `${path.basename(ti.file_path)} quedaría con ${lineas} líneas y el máximo es ${r.limite}.`;
+  process.stderr.write(`🛑 Bloqueado por tamanio (max-lines): ${motivo}\nNo lo escribas así: dividilo antes, ${COMO_DIVIDIR}\n`);
+  registrarBloqueo({ fuente: "tamanio", regla: "max-lines", motivo, data });
+  return 2;
+}
 
-/** Devuelve el mensaje de aviso o null. `crecio` indica si la edición sumó líneas. */
-function evaluar(filePath, lineas, crecio, config = DEFAULTS) {
-  const p = filePath.replace(/\\/g, "/");
-  if (!EXT_CODIGO.test(p) || IGNORAR_SIEMPRE.test(p)) return null;
-  if (config.ignorar.some((x) => p.includes(x))) return null;
-  const limite = ES_TEST.test(p) ? config.tests : config.codigo;
-  if (lineas <= limite || !crecio) return null;
-  return (
-    `📏 ${path.basename(p)} tiene ${lineas} líneas (límite ${limite}).\n` +
-    `Dividilo antes de seguir: extraé subcomponentes, hooks, servicios, utilidades o tipos ` +
-    `a archivos propios, sin cambiar el comportamiento y manteniendo los exports públicos. ` +
-    `Si es un refactor grande, delegalo al agente refactorizador. No sigas agregando código a este archivo.`
+/** Si la edición ya hecha sumó líneas (Write: archivo completo, siempre se evalúa). */
+function crecioCon(tool, ti) {
+  if (tool === "Edit") return contarLineas(ti.new_string) > contarLineas(ti.old_string);
+  if (tool !== "MultiEdit") return true;
+  return (ti.edits || []).reduce((d, e) => d + contarLineas(e.new_string) - contarLineas(e.old_string), 0) > 0;
+}
+
+function despuesDeEscribir(data, limites, raiz) {
+  const tool = data.tool_name, ti = data.tool_input || {};
+  if (!ti.file_path || !["Write", "Edit", "MultiEdit"].includes(tool)) return 0;
+  const contenido = leerArchivo(ti.file_path);
+  if (contenido == null) return 0;
+  const lineas = contarLineas(contenido);
+  const r = evaluar(ti.file_path, lineas, crecioCon(tool, ti), limites, raiz);
+  if (!r) return 0;
+  const tope = r.nivel === "bloqueo" ? `pasa el máximo de ${r.limite}` : `pasa el aviso de ${r.limite}; se bloquea a partir de ${r.maximo}`;
+  process.stderr.write(
+    `📏 ${path.basename(ti.file_path)} tiene ${lineas} líneas (${tope}).\n` +
+    `Dividilo antes de seguir: ${COMO_DIVIDIR} No sigas agregando código a este archivo.\n`
   );
-}
-
-function cederAlProyecto(nombre, cwd) {
-  const global = path.join(os.homedir(), ".claude", "hooks");
-  if (path.resolve(__dirname) !== path.resolve(global)) return false;
-  const proyecto = process.env.CLAUDE_PROJECT_DIR || cwd;
-  if (!proyecto) return false;
-  const local = path.join(proyecto, ".claude", "hooks", nombre);
-  return path.resolve(local) !== path.resolve(__filename) && fs.existsSync(local);
+  return 2;
 }
 
 module.exports = { evaluar };
 
 if (require.main === module) {
   if (process.env.CLAUDE_GUARDIA_OFF === "1") process.exit(0);
-  let input = "";
-  process.stdin.on("data", (c) => (input += c));
-  process.stdin.on("end", () => {
-    let data;
-    try { data = JSON.parse(input); } catch { process.exit(0); }
-    if (cederAlProyecto("tamanio.js", data.cwd)) process.exit(0);
-    const tool = data.tool_name;
-    const ti = data.tool_input || {};
-    const file = ti.file_path;
-    if (!file || !["Write", "Edit", "MultiEdit"].includes(tool)) process.exit(0);
-
-    let lineas;
-    try { lineas = contar(fs.readFileSync(file, "utf8")); } catch { process.exit(0); }
-
-    let crecio = true; // Write: archivo completo, siempre se evalúa
-    if (tool === "Edit") crecio = contar(ti.new_string) > contar(ti.old_string);
-    if (tool === "MultiEdit")
-      crecio = (ti.edits || []).reduce((d, e) => d + contar(e.new_string) - contar(e.old_string), 0) > 0;
-
-    const msg = evaluar(file, lineas, crecio, cargarConfig(data.cwd));
-    if (msg) { process.stderr.write(msg + "\n"); process.exit(2); }
-    process.exit(0);
+  leerEntrada((data) => {
+    if (cederAlProyecto(__filename, data.cwd)) process.exit(0);
+    const archivo = (data.tool_input || {}).file_path;
+    const raiz = (archivo && raizDe(path.dirname(archivo))) || process.env.CLAUDE_PROJECT_DIR || data.cwd;
+    const evaluarCon = data.hook_event_name === "PreToolUse" ? antesDeEscribir : despuesDeEscribir;
+    process.exit(evaluarCon(data, cargarLimites(raiz), raiz));
   });
 }

@@ -3,7 +3,12 @@
 Requisitos (una sola vez):
 1. Kit instalado y commiteado en el repo: `./instalar-en-repo.sh <repo>`. Las routines clonan el repo y no ven tu `~/.claude`. El CLAUDE.md del repo tiene que indicar la rama de integración (en tabloFlow, `develop`): las routines arrancan desde la rama por defecto y las skills usan ese dato para saber qué revisar.
 2. App de Claude instalada en el repo de GitHub (obligatoria para los triggers de GitHub).
-3. Entorno cloud: el Default sirve (permite npm). Agregá un setup script con `npm ci` para cachear dependencias.
+3. Entorno cloud: el Default sirve (permite npm). Agregá un setup script que instale las dependencias y las herramientas de los chequeos de seguridad (el hook pre-PR las necesita para que la auditoría semanal pueda abrir su PR):
+   ```bash
+   pnpm install --frozen-lockfile
+   pip install --quiet semgrep
+   curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz -C /usr/local/bin gitleaks
+   ```
 4. En cada routine, **quitá todos los conectores** (Gmail, Drive, Calendar): no los necesitan y la routine puede usarlos sin pedir permiso.
 5. Probá cada una con **Run now** y leé la transcripción: un estado verde solo significa que la sesión arrancó y terminó, no que la tarea salió bien.
 
