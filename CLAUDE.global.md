@@ -1,21 +1,27 @@
 # Flujo de trabajo y calidad (kit Claude Code)
 
+## Tareas chicas, sesiones cortas
+Cada llamada al modelo relee todo el contexto de la sesión: una sesión larga es cara y lenta aunque cada paso sea chico.
+- **Una tarea = una sesión = un PR** (apuntá a < 400 líneas de diff). Lo que no entra, `/feature` lo parte en tareas así antes de implementar.
+- **Cortá la sesión** al abrir el PR o cuando cambia el tema, y también si ya se compactó o pasó las ~100 llamadas. Lo que falta sigue en una sesión nueva con un brief corto (objetivo, archivos, qué es "hecho", qué gate correr), no con el historial.
+- **Leé lo justo**: buscá con `rg` y leé por rango, sin `cat` ni `git show` de archivos enteros. Filtrá la salida de tests y gates hasta el primer error.
+- **Agrupá** los comandos independientes en una sola llamada: cada ida y vuelta relee todo el contexto.
+
 ## Flujo de trabajo con agentes
-Para tareas no triviales, delegá en los subagentes de ~/.claude/agents:
+Para tareas no triviales (el detalle está en `/feature`):
 
-0. **antecedentes** → antes de empezar: ¿ya se hizo, está en curso (otro agente, sesión o persona) o se descartó? Si el veredicto es 🔴, frená y mostrame los hallazgos. Si es 🟡, pasáselos al arquitecto.
+0. **antecedentes** → ¿ya se hizo, está en curso (otro agente, sesión o persona) o se descartó? Si da 🔴, frená y mostrame los hallazgos. Si da 🟡, pasáselos al arquitecto.
 1. **investigador** → dudas sobre librerías, APIs o tecnologías externas.
-2. **arquitecto** → features nuevas o cambios en varios módulos. Mostrame el plan y esperá mi OK antes de implementar.
-3. **backend** / **frontend** / **infraestructura** → implementación por área (en paralelo solo si no tocan los mismos archivos).
-4. **tester** → tests de lo implementado.
-5. **refactorizador** → si quedó código duplicado o archivos/funciones que superan los límites.
-6. **qa-revisor** → revisión final. Si el veredicto es ❌, corregí y volvé a revisar.
-7. **Seguridad antes del PR**, siempre que cambie código: los chequeos mecánicos (`seguridad.sh` y `lint-cambios.js`, en `.claude/checks/` o, con la instalación global, en `~/.claude/checks/`) y **revisor-seguridad** sobre el diff, más **multitenant** si el proyecto lo tiene y el cambio toca datos. Una Crítica o Alta frena el PR. **seguridad** queda para auditorías amplias: infraestructura, configuración, dependencias y releases.
-8. **documentador** → si cambió la API, comandos, arquitectura o setup.
-9. **git** → commits atómicos y PR, solo después de que qa-revisor y revisor-seguridad aprueben. El hook pre-PR vuelve a correr los chequeos y bloquea si fallan.
+2. **arquitecto** → features nuevas o cambios en varios módulos: el plan, partido en tareas de un PR si no entra en uno. Mostrame el plan y esperá mi OK antes de implementar.
+3. **Implementación**: una tarea chica de un área la implementás vos, con sus tests. **backend** / **frontend** / **infraestructura** / **tester** cuando hay partes independientes para ir en paralelo (solo si no tocan los mismos archivos).
+4. **refactorizador** → si quedó código duplicado o archivos/funciones que superan los límites.
+5. **qa-revisor** → siempre, con el diff y el resultado de la gate en el brief para que no la repita. Si el veredicto es ❌, corregí y volvé a revisar.
+6. **Seguridad antes del PR**, siempre que cambie código. Los chequeos mecánicos (`seguridad.sh` y `lint-cambios.js`, en `.claude/checks/` o, con la instalación global, en `~/.claude/checks/`) corren siempre. Los revisores, solo si el diff toca su terreno: **revisor-seguridad** si toca backend, auth, pagos, endpoints, datos o inputs externos; **multitenant** (si el proyecto lo tiene) si toca datos, endpoints, caché o eventos; **seguridad** para infraestructura, configuración, dependencias y releases. Un diff solo de UI, estilos, textos o docs no necesita ninguno. Una Crítica o Alta frena el PR.
+7. **documentador** → si cambió la API, comandos, arquitectura o setup.
+8. **git** → commits atómicos y PR, solo después de que aprueben qa-revisor y los revisores que correspondían. El hook pre-PR vuelve a correr los chequeos y bloquea si fallan.
 
-Ante cualquier error o test que falla → **depurador**.
-Cambios chicos (un archivo, un fix obvio): implementá, qa-revisor, revisor-seguridad y git.
+Un error que no entendés después de un par de intentos → **depurador**.
+Cambios chicos (un archivo, un fix obvio): implementá, qa-revisor y git, más los revisores que active el diff según el paso 6.
 
 ## Criterio
 - **Patrones de diseño** solo ante una necesidad concreta y presente, y justificados en la descripción del PR. Nada especulativo ("por si después…").

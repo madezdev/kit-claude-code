@@ -2,7 +2,7 @@
 
 ## Qué trae
 - **14 agentes:** antecedentes, investigador, arquitecto, backend, frontend, infraestructura, tester, refactorizador, qa-revisor, revisor-seguridad, seguridad, depurador, documentador, git.
-- **4 skills:** `/feature` (flujo completo hasta el PR), `revisar-pr`, `revision-diaria` y `auditoria-semanal` (estas tres, para routines).
+- **4 skills:** `/feature` (flujo completo hasta el PR; una feature grande la parte en tareas de un PR cada una), `revisar-pr`, `revision-diaria` y `auditoria-semanal` (estas tres, para routines).
 - **4 hooks:**
   - `guardia.js`: bloquea infra real, deploys, merges, aprobaciones de PR, lectura de secretos y push a main y demás ramas protegidas (incluidos un `git push` sin rama estando en una de ellas y `--all`/`--branches`/`--mirror`).
   - `tamanio.js`: avisa a las 400 líneas y bloquea a las 600, antes de escribir (en tests, 600 y 800).
@@ -32,6 +32,8 @@ Si un repo trae su propia copia de los hooks, la global le cede el control (no c
 ```
 Vos solo aprobás el plan y mergeás el PR.
 
+Si la feature no entra en un PR (~400 líneas de diff), el plan sale como una lista de tareas, cada una con un brief que se entiende solo. La sesión del plan hace la primera; cada una de las demás va en una sesión nueva con `/feature <brief>`.
+
 ## Trabajo duplicado y memoria
 - **antecedentes** corre antes de cada tarea no trivial (paso 0 de `/feature`). Revisa la memoria, los PRs, los issues, las ramas, los worktrees, el historial y el código para saber si la tarea ya se hizo, si otro agente o persona la está haciendo, o si se descartó. Si da 🔴, el flujo frena y te pregunta.
 - Los agentes en paralelo no comparten archivos: el plan del arquitecto asigna archivos a cada uno.
@@ -39,7 +41,7 @@ Vos solo aprobás el plan y mergeás el PR.
 - **Memoria con engram (opcional):** si está instalado, los agentes consultan la memoria y la sesión principal guarda las decisiones aprobadas y las causas de los bugs. Los subagentes no guardan: proponen con "Para memoria:" y la sesión principal decide. Sin engram, por ejemplo en las routines, todo funciona igual. Es una regla de las instrucciones, no un bloqueo técnico: los agentes sin `tools:` heredan todas las herramientas. Los que tienen `tools:` restringido solo leen de engram: arquitecto, qa-revisor, revisor-seguridad y seguridad usan `mem_search` y `mem_get_observation`, y antecedentes además `mem_context`. git y documentador no lo usan. Funciona tanto con engram instalado como servidor MCP como con el plugin.
 
 ## Calidad y seguridad
-- **Etapa nueva antes del PR** (paso 6 de `/feature`): los chequeos mecánicos más **revisor-seguridad** sobre el diff. Revisa fuga de datos entre tenants, firma de los webhooks de Mercado Pago, autorización en endpoints de Nest e inputs sin validar, y una Crítica o Alta frena el PR.
+- **Etapa nueva antes del PR** (paso 6 de `/feature`): los chequeos mecánicos y, si el diff toca backend, auth, pagos, endpoints, datos o inputs externos, **revisor-seguridad**. Revisa fuga de datos entre tenants, firma de los webhooks de Mercado Pago, autorización en endpoints de Nest e inputs sin validar, y una Crítica o Alta frena el PR.
 - **Solo se frena lo nuevo:**
   - Los hooks dejan pasar el código viejo que no empeora.
   - En ESLint, las violaciones existentes se guardan como línea base con `node .claude/checks/linea-base.js` (un `eslint-suppressions.json` por paquete) y se achican con `--podar`.
