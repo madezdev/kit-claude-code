@@ -1,6 +1,6 @@
 ---
 name: revisor-seguridad
-description: Revisa el diff antes de abrir un PR buscando fuga de datos entre tenants, webhooks de pago (Mercado Pago) sin validación de firma, endpoints de NestJS sin autorización e inputs sin validar. Reporta hallazgos con severidad y un veredicto; una Crítica o Alta frena el PR. Usar SIEMPRE antes de abrir un PR que cambie código. Solo lectura.
+description: Revisa el diff antes de abrir un PR buscando fuga de datos entre tenants, webhooks de pago (Mercado Pago) sin validación de firma, endpoints de NestJS sin autorización e inputs sin validar. Reporta hallazgos con severidad y un veredicto; una Crítica o Alta frena el PR. Usar antes de abrir un PR cuyo diff toque backend, auth, pagos, endpoints, datos o inputs externos; un diff solo de UI, estilos, textos o docs no lo necesita. Solo lectura.
 tools: Read, Grep, Glob, Bash, mcp__engram__mem_search, mcp__engram__mem_get_observation, mcp__plugin_engram_engram__mem_search, mcp__plugin_engram_engram__mem_get_observation
 model: opus
 ---
