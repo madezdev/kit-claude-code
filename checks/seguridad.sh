@@ -8,7 +8,10 @@
 #   hallazgos nuevos respecto de la rama base, en los archivos JS/TS cambiados.
 # - gitleaks: secretos en los commits que no están en la rama base y en lo que
 #   todavía no se commiteó (staged, modificado y archivos nuevos).
-# --solo-secretos corre solo gitleaks (lo usa el hook antes de cada git push).
+# --solo-secretos corre solo gitleaks (lo usa el hook antes de cada git push), y
+#   sobre lo que el push va a publicar: los commits que no están en ningún remoto.
+#   Con la base, una rama de develop en un repo cuyo default es main arrastraba
+#   cientos de commits ya publicados, y un falso positivo viejo frenaba todo push.
 # La última línea es KIT_FALLAN=<chequeos que fallaron, separados por coma>.
 set -o pipefail
 DIR_KIT="$(cd "$(dirname "$0")" && pwd)"
@@ -92,8 +95,9 @@ gitleaks_en() {
 
 chequear_gitleaks() {
   if ! command -v gitleaks >/dev/null; then falla gitleaks "no está instalado (brew install gitleaks)"; return; fi
-  local salida="" peor=0 c f
-  salida+="$(gitleaks_en git --log-opts="$DESDE..HEAD" .)"; c=$?; [ $c -gt $peor ] && peor=$c
+  local salida="" peor=0 c f rango="$DESDE..HEAD"
+  [ -n "$SOLO_SECRETOS" ] && rango="HEAD --not --remotes"
+  salida+="$(gitleaks_en git --log-opts="$rango" .)"; c=$?; [ $c -gt $peor ] && peor=$c
   salida+="$(gitleaks_en git --pre-commit --staged .)"; c=$?; [ $c -gt $peor ] && peor=$c
   salida+="$(gitleaks_en git --pre-commit .)"; c=$?; [ $c -gt $peor ] && peor=$c
   while IFS= read -r -d '' f; do
