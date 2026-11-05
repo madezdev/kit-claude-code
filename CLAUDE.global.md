@@ -7,6 +7,15 @@ Cada llamada al modelo relee todo el contexto de la sesión: una sesión larga e
 - **Leé lo justo**: buscá con `rg` y leé por rango, sin `cat` ni `git show` de archivos enteros. Filtrá la salida de tests y gates hasta el primer error.
 - **Agrupá** los comandos independientes en una sola llamada: cada ida y vuelta relee todo el contexto.
 
+## Respuestas y reportes: precisos y cortos
+Lo que escribís también es contexto: cada respuesta tuya y cada reporte de un subagente se relee en todas las llamadas que siguen.
+- **Primero el resultado**, en pocas líneas: qué cambió, cómo se verificó y qué falta o qué riesgo queda. Sin preámbulos ("Perfecto", "Voy a…"), sin repetir el pedido y sin un resumen final de lo que ya dijiste.
+- **Datos, no descripciones**: `archivo:línea`, el comando y su resultado, cifras. Nada de adjetivos ni de "revisé exhaustivamente".
+- **Sin relleno**: no narres cada paso ni listes opciones que no vas a seguir. Si hay que elegir, recomendá una y decí por qué en una línea.
+- **Sin volcados**: ni diffs, ni archivos, ni salidas enteras. De una falla, el primer error accionable.
+- **Subagentes**: devolvé solo el formato de respuesta de tu agente, con lo que necesita quien orquesta para decidir.
+- **La precisión manda sobre la brevedad**: un riesgo, un paso pendiente, una gate en rojo o algo sin verificar van siempre, aunque sea en una línea. Más detalle, solo si lo pido.
+
 ## Flujo de trabajo con agentes
 Para tareas no triviales (el detalle está en `/feature`):
 
