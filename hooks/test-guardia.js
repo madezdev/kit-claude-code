@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Corré: node test-guardia.js   (después de editar reglas, para no romper nada)
-const { revisarBash, revisarArchivo, REGLAS_BASH } = require("./guardia.js");
+const { revisarBash, revisarArchivo, motivoDe, REGLAS_BASH } = require("./guardia.js");
 
 const bloquear = [
   "terraform apply -auto-approve",
@@ -70,6 +70,20 @@ const bloquear = [
   "az repos pr update --id 12 --auto-complete true",
   "git push --all origin",
   "git push --mirror origin",
+  // Merge por otras vías: flags globales de gh y la API.
+  "gh -R o/r pr merge 12 --merge",
+  "gh --repo o/r pr merge 12 --squash",
+  "gh --repo=o/r pr merge 12",
+  "gh api -X PUT repos/o/r/pulls/13/merge -f merge_method=merge",
+  "gh api graphql -f query='mutation { mergePullRequest(input:{}) { clientMutationId } }'",
+  "gh api graphql -f query='mutation { enablePullRequestAutoMerge(input:{}) { clientMutationId } }'",
+  // Push a rama protegida escrito de otras formas.
+  "git push origin refs/heads/main",
+  "git push origin HEAD:refs/heads/main",
+  "git push origin refs/heads/master",
+  'git push origin "main"',
+  "git push origin main&&echo",
+  "git push origin --all",
 ];
 
 const permitir = [
@@ -120,6 +134,13 @@ const permitir = [
   "git push -u origin feat/develop-panel",
   "git push -u origin fix/main-menu",
   "gh pr create --base develop --title 'feat(api): x'",
+  // Nombran main o un PR sin empujar ni mergear.
+  "gh api repos/o/r/pulls/13",
+  "gh pr view 13 --json mergeable",
+  "git push -q origin feat/x; git fetch -q origin main",
+  "git push origin feat/x && git log origin/main -1",
+  "git push origin release/2026-11-04",
+  "git push origin HEAD:refs/heads/release/2026-11-04",
 ];
 
 const archivosBloq = [["Read", "/repo/.env"], ["Edit", "/repo/apps/api/.env.local"], ["Read", "C:\\repo\\.env.production"], ["Read", "/home/m/.ssh/id_ed25519"], ["Read", "/repo/infra/terraform.tfstate"], ["Write", "/repo/certs/server.key"]];
@@ -187,6 +208,70 @@ const conRama = [
   ["gh issue create --title x --body 'correr git push origin'", "main", false],
   ["git commit -m 'docs: explicar git push'", "main", false],
   ["git status", "main", false],
+  // Push dentro de lo que ejecuta un shell: se vuelve a revisar con la rama del momento.
+  ['bash -c "git push origin main"', "feat/x", true],
+  ["sh -c 'git push origin HEAD:main'", "feat/x", true],
+  ['zsh -c "git push origin main"', "feat/x", true],
+  ['bash -lc "cd ../wt-feat && git push origin main"', "feat/x", true],
+  ['sudo -u ci bash -c "git push origin main"', "feat/x", true],
+  ['bash -c "bash -c \'git push origin main\'"', "feat/x", true],
+  ['eval "git push origin main"', "feat/x", true],
+  ["bash <<'EOF'\ngit push origin main\nEOF", "feat/x", true],
+  ["sh -s <<EOF\ngit push origin HEAD:refs/heads/main\nEOF", "feat/x", true],
+  ["cat <<'EOF' | bash\ngit push --force origin feat/x\nEOF", "feat/x", true],
+  ["/usr/bin/git push origin main", "feat/x", true],
+  ['bash -c "git push --force origin feat/x"', "feat/x", true],
+  ['bash -c "git push --mirror origin"', "feat/x", true],
+  ["bash -c 'git push origin --all'", "feat/x", true],
+  ['bash -c "git push"', "main", true],
+  ["git checkout main && bash <<'EOF'\ngit push\nEOF", "feat/x", true],
+  ['bash -c "git push -u origin feat/x"', "feat/x", false],
+  ["bash <<'EOF'\ngit push -u origin feat/x\nEOF", "feat/x", false],
+  ["git commit -F - <<'EOF'\nchore: nunca git push origin main\nEOF", "feat/x", false],
+  ["cat <<'EOF' > notas.md\ngit push origin main\nEOF", "feat/x", false],
+  ['gh pr create --body "$(cat <<\'EOF\'\nNunca git push origin main\nEOF\n)"', "feat/x", false],
+  // La red de seguridad es conservadora: nombrar un shell y un push a main bloquea.
+  ["echo \"bash -c 'git push origin main'\"", "feat/x", true],
+  ["bash scripts/check.sh", "main", false],
+  // Otras vías de ejecutar texto.
+  ['echo "git push origin main" | bash', "feat/x", true],
+  ['bash <<< "git push origin main"', "feat/x", true],
+  ["sh <<<'git push --force origin feat/x'", "feat/x", true],
+  ['bash <(echo "git push origin main")', "feat/x", true],
+  ['source <(echo "git push origin main")', "feat/x", true],
+  ["cat <<'EOF' \\\n  | bash\ngit push origin main\nEOF", "feat/x", true],
+  ["python3 -c \"import os; os.system('git push origin main')\"", "feat/x", true],
+  ["node -e \"require('child_process').execSync('git push origin main')\"", "feat/x", true],
+  ["perl -e 'system(\"git push origin main\")'", "feat/x", true],
+  ['git rebase -x "git push origin main" HEAD~1', "feat/x", true],
+  ['git submodule foreach "git push origin main"', "feat/x", true],
+  ["git -c alias.x='!git push origin main' x", "feat/x", true],
+  ['fish -c "git push origin main"', "feat/x", true],
+  ['tcsh -c "git push origin main"', "feat/x", true],
+  ['$SHELL -c "git push origin main"', "feat/x", true],
+  ['script -qc "git push origin main" /dev/null', "feat/x", true],
+  ['flock /tmp/l -c "git push origin main"', "feat/x", true],
+  ["env -S \"bash -c 'git push origin main'\"", "feat/x", true],
+  ['npx -c "git push origin main"', "feat/x", true],
+  ['watch -n 60 "git push origin main"', "feat/x", true],
+  ['bash -c "bash -c \'bash -c \\"git push origin main\\"\'"', "feat/x", true],
+  ["python3 - <<'EOF'\nimport subprocess\nsubprocess.run('git push origin main', shell=True)\nEOF", "feat/x", true],
+  ["node <<'EOF'\nrequire('child_process').execSync('git push origin main')\nEOF", "feat/x", true],
+  ["cat <<'EOF' | python3\nimport os; os.system('git push origin main')\nEOF", "feat/x", true],
+  ["node -e \"require('child_process').execSync(`git push origin main`)\"", "feat/x", true],
+  ["ssh localhost 'cd repo && git push origin main'", "feat/x", true],
+  ['docker exec ci sh -lc "git push --force origin feat/x"', "feat/x", true],
+  // …y lo que tiene que seguir pasando: texto que no ejecuta nadie.
+  ["bash scripts/check.sh && git commit -m \"$(cat <<'EOF'\ndocs: nunca git push origin main\nEOF\n)\"", "feat/x", false],
+  ["sh -c 'pnpm test' && git commit -F - <<'EOF'\nnunca git push origin main\nEOF", "feat/x", false],
+  ["gh pr create --title fix --label sh --body \"$(cat <<'EOF'\ngit push origin main\nEOF\n)\"", "feat/x", false],
+  ["python3 - <<'EOF'\nprint('hola')\nEOF", "feat/x", false],
+  ['eval "$(ssh-agent -s)"', "feat/x", false],
+  ['bash -lc "pnpm test"', "feat/x", false],
+  ["bash -c 'git push -u origin HEAD'", "feat/x", false],
+  ["bash scripts/x.sh && git push -u origin feat/x && git log origin/main -1", "feat/x", false],
+  // release/<fecha> no es rama protegida, tampoco dentro de un shell.
+  ['bash -c "git push origin release/2026-11-04"', "feat/x", false],
 ];
 const worktrees = { "/r/wt-main": "main", "/r/wt-feat": "feat/y" };
 const contexto = (rama) => ({ cwd: "/r/repo", rama, ramaEn: (dir) => worktrees[dir] ?? null });
@@ -201,12 +286,15 @@ for (const [c, r, debe] of conRama) {
   if (!!m !== debe) { fallos++; console.log(debe ? "❌ NO bloqueó:  " : "❌ Bloqueó mal: ", JSON.stringify(c), `(en ${r})`, m || ""); }
 }
 
+// El merge por el MCP de GitHub no tiene excepción.
+if (!motivoDe({ tool_name: "mcp__github__merge_pull_request", tool_input: { pullNumber: 3, merge_method: "squash" } })) { fallos++; console.log("❌ NO bloqueó el merge por MCP"); }
+
 // Cada regla tiene un id único: es lo que se registra en Jarvis
 const ids = REGLAS_BASH.map((r) => r.id);
 if (ids.some((id) => !/^[a-z0-9-]+$/.test(id || "")) || new Set(ids).size !== ids.length) { fallos++; console.log("❌ ids de reglas faltantes o repetidos"); }
 const conId = [...bloquear.map((c) => revisarBash(c)), ...archivosBloq.map(([t, f]) => revisarArchivo(t, f))];
 if (conId.some((m) => m && !m.id)) { fallos++; console.log("❌ un bloqueo sin id"); }
 
-const total = bloquear.length + permitir.length + archivosBloq.length + archivosOk.length + conRama.length + 2;
+const total = bloquear.length + permitir.length + archivosBloq.length + archivosOk.length + conRama.length + 3;
 console.log(fallos ? `\n${fallos} fallos de ${total}` : `✅ ${total}/${total} casos OK`);
 process.exit(fallos ? 1 : 0);

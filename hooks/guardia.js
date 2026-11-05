@@ -17,6 +17,7 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 const { cederAlProyecto, leerEntrada, segmentos, tokens } = require("./comun.js");
 const { registrarBloqueo } = require("./jarvis.js");
+const { anidadosDe, partirHeredocs, redDePush, RAMAS_PROTEGIDAS } = require("./shell-anidado.js");
 
 const LOG = process.env.GUARDIA_LOG || path.join(os.homedir(), ".claude", "hooks", "guardia.log");
 
@@ -73,7 +74,8 @@ const REGLAS_BASH = [
 
   // --- Git (git push se analiza aparte, en revisarGit) ---
   { id: "pr-aprobar", re: /\bgh\s+pr\s+review\b.*(--approve|-a\b|--request-changes|-r\b)/, msg: "Aprobar o rechazar PRs es decisión humana. Usá --comment." },
-  { id: "pr-merge", re: /\bgh\s+pr\s+merge\b|\baz\s+repos\s+pr\s+update\b.*(--status\s+completed|--auto-complete\s+true)/, msg: "Merge de PR: lo hace el humano después de revisar." },
+  { id: "pr-merge", re: /\bgh(\s+-{1,2}[\w-]+(=\S+|\s+[^\s-]\S*)?)*\s+pr\s+merge\b|\baz\s+repos\s+pr\s+update\b.*(--status\s+completed|--auto-complete\s+true)/, msg: "Merge de PR: lo hace el humano después de revisar." },
+  { id: "pr-merge-api", re: /\bgh\s+api\b.*(\/pulls\/\d+\/merge|mergePullRequest|enablePullRequestAutoMerge)/, msg: "Merge o auto-merge de PR por la API de GitHub: lo hace el humano después de revisar." },
   { id: "git-descarta-cambios", re: /\bgit\s+reset\s+--hard\b|\bgit\s+clean\s+-\w*f/, msg: "Descarta trabajo no commiteado (riesgoso con agentes en paralelo)." },
   { id: "git-borra-rama-principal", re: /\bgit\s+branch\s+-D\s+(main|master|develop|prod)\b/, msg: "Borrado de rama principal." },
   { id: "git-reescribe-historial", re: /\bgit\s+filter-(branch|repo)\b/, msg: "Reescritura del historial." },
@@ -119,7 +121,8 @@ function revisarBash(cmd, contexto) {
   for (const r of REGLAS_BASH) {
     if (r.re.test(cmd) && !(r.allow && r.allow.test(cmd))) return { id: r.id, msg: r.msg };
   }
-  return revisarGit(cmd, contexto);
+  // Red de seguridad: un push que corre como texto (bash -c, eval, heredoc a un shell, intérprete).
+  return revisarGit(cmd, contexto) || { force: FORCE, protegida: PROTEGIDA }[redDePush(cmd)] || null;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,7 +130,7 @@ function revisarBash(cmd, contexto) {
 // subshells y $(...)) siguiendo la rama actual, que cambia con checkout/switch,
 // cd/pushd y git -C. Sin rama conocida, solo se revisan los destinos explícitos.
 // ---------------------------------------------------------------------------
-const RAMA_PROTEGIDA = /^(main|master|develop|dev|prod|production|release)$/;
+const RAMA_PROTEGIDA = new RegExp(`^(${RAMAS_PROTEGIDAS})$`);
 const OPCIONES_CON_VALOR = new Set(["-o", "--push-option", "--repo", "--receive-pack", "--exec", "--recurse-submodules"]);
 const CREAR_RAMA = new Set(["-b", "-B", "-c", "-C", "--create", "--force-create", "--orphan"]);
 const FORCE = { id: "push-force", msg: "git push --force. Usá --force-with-lease si es tu rama." };
@@ -234,7 +237,8 @@ function opcionesGlobales(t, i, estado) {
 
 /** Un segmento con git: sigue los checkout/switch y revisa los push. */
 function revisarSegmentoGit(t, estado) {
-  const git = t.indexOf("git"); // también con prefijos: timeout 60 git, sudo git, env X=1 git, ! git
+  // También con prefijos (timeout 60 git, sudo git, env X=1 git, ! git) y con ruta (/usr/bin/git).
+  const git = t.findIndex((x) => /(^|\/)git$/.test(x));
   if (git < 0) return null;
   const { i, rama, otroRepo } = opcionesGlobales(t, git + 1, estado);
   const sub = t[i], args = t.slice(i + 1);
@@ -242,15 +246,23 @@ function revisarSegmentoGit(t, estado) {
   return sub === "push" ? revisarPush(args, rama) : null;
 }
 
-function revisarGit(cmd, { cwd = process.cwd(), rama = null, ramaEn = () => null } = {}) {
+// El texto que un shell ejecuta (bash -c "…", eval "…", heredocs que lee un shell) se vuelve a
+// revisar con la rama y el directorio del momento (ver shell-anidado.js).
+const MAX_ANIDADO = 5;
+const ANIDADO_PROFUNDO = { id: "push-anidado-profundo", msg: "Comando con demasiados niveles de shell anidado: no se puede revisar. Escribilo sin anidar." };
+
+const primerMotivo = (lista, revisar) => lista.reduce((motivo, x) => motivo || revisar(x), null);
+
+function revisarGit(cmd, { cwd = process.cwd(), rama = null, ramaEn = () => null } = {}, nivel = 0) {
   const estado = { dir: cwd, rama, ramaEn };
+  const anidado = (texto) => (nivel >= MAX_ANIDADO ? ANIDADO_PROFUNDO : revisarGit(texto, { cwd: estado.dir, rama: estado.rama, ramaEn }, nivel + 1));
   for (const segmento of segmentos(cmd)) {
     const t = sinVariables(tokens(segmento));
     if (cambiaDirectorio(t, estado)) continue;
-    const motivo = revisarSegmentoGit(t, estado);
+    const motivo = revisarSegmentoGit(t, estado) || primerMotivo(anidadosDe(t), anidado);
     if (motivo) return motivo;
   }
-  return null;
+  return primerMotivo(partirHeredocs(cmd).ejecutados, anidado);
 }
 
 function ramaActual(cwd) {
@@ -270,21 +282,26 @@ function log(linea) {
 }
 
 const HERRAMIENTAS_DE_ARCHIVOS = ["Read", "Edit", "Write", "MultiEdit", "NotebookEdit"];
+// El merge por el MCP de GitHub esquiva la regla pr-merge.
+const MERGE_MCP = "mcp__github__merge_pull_request";
+const MERGE_MCP_BLOQUEO = { id: "pr-merge-mcp", msg: "Merge de PR por MCP: lo hace el humano después de revisar." };
 
 /** Regla que bloquea la llamada a la herramienta ({ id, msg }) o null. */
 function motivoDe(data) {
   const tool = data.tool_name, ti = data.tool_input || {};
   if (HERRAMIENTAS_DE_ARCHIVOS.includes(tool)) return revisarArchivo(tool, ti.file_path || ti.notebook_path);
+  if (tool === MERGE_MCP) return MERGE_MCP_BLOQUEO;
   if (tool !== "Bash") return null;
   const cmd = ti.command || "", cwd = data.cwd || process.cwd();
   if (!/\bpush\b/.test(cmd)) return revisarBash(cmd, { cwd }); // git solo se consulta si hace falta
   return revisarBash(cmd, { cwd, rama: ramaActual(cwd), ramaEn: ramaActual });
 }
 
-const detalleDe = ({ tool_name: tool, tool_input: ti = {} }) => (tool === "Bash" ? ti.command : ti.file_path || ti.notebook_path);
+const detalleDe = ({ tool_name: tool, tool_input: ti = {} }) =>
+  (tool === "Bash" ? ti.command : ti.file_path || ti.notebook_path || `#${ti.pullNumber}`);
 
 // Exportado para tests
-module.exports = { revisarBash, revisarArchivo, REGLAS_BASH };
+module.exports = { revisarBash, revisarArchivo, motivoDe, REGLAS_BASH };
 
 if (require.main === module) {
   if (process.env.CLAUDE_GUARDIA_OFF === "1") process.exit(0);
