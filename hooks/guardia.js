@@ -28,6 +28,24 @@ const DRY_RUN = /--dry-run|--what-if|\bwhat-if\b|--preview\b/;
 // Crear/editar PRs en Azure Repos está permitido (el merge no).
 const AZ_PERMITIDO = /--dry-run|--what-if|\bwhat-if\b|^(?!.*(--status\s+completed|--auto-complete\s+true|--merge-commit-message)).*\baz\s+repos\s+pr\s+(create|update|reviewer\s+add|work-item\s+add)\b/;
 
+// Volcado del entorno: `env` o `printenv` sin argumentos (o solo con opciones) y `set` solo, como comando de
+// un tramo, también dentro de `bash -c "…"` y `eval "…"`. Se mira por tramos y no con una regex sobre todo el
+// texto: un patrón de búsqueda como `rg '\.env|\.pem'` o `rg "host|printenv"` tiene `env|` y no vuelca nada.
+const ANTES_DEL_COMANDO = new Set(["sudo", "doas", "exec", "command", "nohup", "time"]);
+const SHELL_C = /(^|\/)(ba|z|da|k|c|tc|a|mk)?sh$/;
+const VOLCADO_ENV = { test: (cmd) => segmentos(cmd).some((s) => vuelcaEntorno(tokens(s))) };
+
+function vuelcaEntorno(t) {
+  let i = 0;
+  while (i < t.length && (/^\w+=/.test(t[i]) || ANTES_DEL_COMANDO.has(t[i]))) i++;
+  const cmd = t[i] || "", args = t.slice(i + 1);
+  if (cmd === "env" || cmd === "printenv") return args.every((a) => a.startsWith("-"));
+  if (cmd === "set") return args.length === 0;
+  if (cmd === "eval") return VOLCADO_ENV.test(args.join(" "));
+  const c = args.findIndex((a) => /^-[a-z]*c[a-z]*$/.test(a));
+  return SHELL_C.test(cmd) && c >= 0 && args[c + 1] != null && VOLCADO_ENV.test(args[c + 1]);
+}
+
 const REGLAS_BASH = [
   // --- Infraestructura como código ---
   { id: "terraform-aplica", re: /\b(terraform|tofu|terragrunt)\s+(.*\s)?(apply|destroy|import|taint|untaint|force-unlock)\b/, msg: "Terraform/OpenTofu que modifica estado real. Solo plan/validate/fmt." },
@@ -90,7 +108,7 @@ const REGLAS_BASH = [
   { id: "rm-rf-amplio", re: /\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*(r[a-zA-Z]*f|f[a-zA-Z]*r)[a-zA-Z]*\s+(\/|~|\$HOME|\.\.?|\*)(\/?\s|\/?$)/, msg: "rm -rf sobre raíz, home o directorio completo." },
   { id: "lee-env", re: /\b(cat|less|more|head|tail|bat|type|grep|sed|awk|cp|scp|base64|xxd|strings)\b[^|;&]*(\s|\/|^)\.env(\.(?!example|sample|template)[\w.-]+)?(\s|$)/, msg: "Lectura de archivo .env con secretos. Usá .env.example." },
   { id: "lee-credenciales", re: /\b(cat|less|more|head|tail|bat|cp|scp|base64)\b[^|;&]*(id_rsa|id_ed25519|\.pem\b|\.pfx\b|\.p12\b|\.key\b|\.aws\/credentials|\.azure\/|\.kube\/config|\.tfstate\b)/, msg: "Lectura de claves/credenciales locales." },
-  { id: "volcado-env", re: /\b(printenv|env)\s*($|\|)|\bset\s*\|/, msg: "Volcado de variables de entorno (puede exponer secretos)." },
+  { id: "volcado-env", re: VOLCADO_ENV, msg: "Volcado de variables de entorno (puede exponer secretos)." },
   { id: "script-remoto", re: /\bcurl\b[^|]*\|\s*(sudo\s+)?(ba|z)?sh\b|\bwget\b[^|]*\|\s*(sudo\s+)?(ba|z)?sh\b/, msg: "Ejecución de script remoto sin revisar." },
 ];
 
