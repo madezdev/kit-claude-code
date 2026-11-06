@@ -34,6 +34,9 @@ Vos solo aprobás el plan y mergeás el PR.
 
 Si la feature no entra en un PR (~400 líneas de diff), el plan sale como una lista de tareas, cada una con un brief que se entiende solo. La sesión del plan hace la primera; cada una de las demás va en una sesión nueva con `/feature <brief>`.
 
+## Ramas, PRs y despliegues
+Ver `ESTRATEGIA-GIT.md`: un PR por funcionalidad (las correcciones van al mismo PR), `feat`/`fix` a la rama de integración, `release/<versión>` validada en stage antes de `main` y hotfix desde `main`, reintegrado después. Los agentes la aplican desde `CLAUDE.global.md`, el agente git y `/feature`. Es genérica: un proyecto que trabaje distinto (otros nombres de rama, sin stage, hotfix a la rama de integración) lo declara en su CLAUDE.md, y manda eso.
+
 ## Consumo
 Cada llamada al modelo relee todo el contexto de la sesión, así que el costo crece con su largo: una sesión de 500 llamadas gasta mucho más que cinco de 100. Por eso el kit pide una tarea por sesión y un PR por tarea, y los revisores corren solo si el diff toca lo suyo. Para medirlo:
 ```bash

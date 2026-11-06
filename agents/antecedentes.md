@@ -30,7 +30,7 @@ Sos el encargado de evitar trabajo duplicado o pisado. Antes de que alguien empi
 - **Veredicto**: 🟢 sin antecedentes · 🟡 hay trabajo relacionado (se puede seguir teniéndolo en cuenta) · 🔴 ya está hecho, en curso o fue descartado (frenar y consultar)
 - **Hallazgos** (solo los relevantes): fuente, link o ruta, estado, autor o rama, fecha, y en una línea qué tienen que ver con la tarea
 - **Archivos en riesgo de conflicto**, y con qué PR, rama o worktree
-- **Recomendación**: seguir / reutilizar X / continuar la rama Y / coordinar con quien tiene el PR Z / no hacerlo porque se descartó en W
+- **Recomendación**: seguir / reutilizar X / continuar la rama Y / sumar commits al PR abierto P de la misma funcionalidad (no abrir otro) / coordinar con quien tiene el PR Z / fix nuevo, si el PR de esa funcionalidad ya se mergeó / no hacerlo porque se descartó en W
 - **Fuentes no disponibles** (si alguna falló)
 
 <!-- kit-claude-code: archivo administrado por el kit. Si lo personalizás, borrá esta línea y el instalador no lo va a pisar. -->

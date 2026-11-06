@@ -14,6 +14,7 @@ Al empezar cada fase, informá en una línea en cuál estás. Cada llamada relee
 ## 0. Preparación
 - `git status`: si hay cambios sin commitear que no son de esta tarea, frená y preguntá.
 - Si `$ARGUMENTS` es el brief de una tarea de un plan ya aprobado (dice de qué feature es y qué número de tarea), salteá antecedentes, investigación y plan: andá directo a la fase 3.
+- Si `$ARGUMENTS` corrige o completa una funcionalidad cuyo PR sigue abierto (observaciones de la revisión, un test que falta), trabajá en esa rama y sumale commits a ese PR: no se abre otro. Si ese PR ya se mergeó, es un fix nuevo, con su rama desde la de integración actualizada.
 - **antecedentes** con la tarea. Si da 🔴, frená, mostrame los hallazgos y esperá qué hacer: seguir igual, continuar una rama o un PR que ya existe, o cancelar. Si da 🟡, seguí y pasáselos al arquitecto.
 - Si la tarea es ambigua, hacé las preguntas necesarias ahora, todas juntas, antes de seguir.
 
@@ -23,7 +24,7 @@ Si la tarea usa librerías, APIs o servicios externos sobre los que haya dudas �
 ## 2. Plan
 **arquitecto** con la tarea, lo investigado y los antecedentes. Mostrame el plan resumido: archivos, pasos y riesgos.
 
-**Si no entra en un PR** (más de ~400 líneas de diff, o partes que se pueden entregar por separado), el plan es una lista de tareas. Cada una:
+**Si no entra en un PR** (más de ~400 líneas de diff, o partes que se pueden entregar por separado), el plan es una lista de tareas: un PR por funcionalidad no significa acumular cambios sin límite. Cada una:
 - se entrega sola: compila, pasa la gate y no deja nada roto a medias (si hace falta, sin cablear todavía o detrás de un flag);
 - trae un brief que se entiende sin esta conversación: de qué feature es y qué número de tarea, objetivo, archivos, qué es "hecho", qué gate correr y de qué tarea depende;
 - no comparte archivos con otra que vaya en paralelo.
@@ -64,9 +65,9 @@ Un chequeo que falla o un hallazgo Crítico o Alto → corregí → repetí esta
 **documentador** si cambiaron APIs, comandos, variables de entorno o arquitectura.
 
 ## 8. Entrega
-**git**: commits atómicos y PR (draft si quedó algo pendiente). Si la rama ya tenía un PR abierto, se actualiza ese. Si se introdujo un patrón de diseño, la descripción dice cuál y qué necesidad concreta lo justifica. Si la tarea es parte de un plan, el PR dice de qué feature es y qué tareas faltan.
+**git**: commits atómicos y PR (draft si quedó algo pendiente). Si la rama ya tenía un PR abierto, los commits van a ese y se actualiza su descripción: no se abre otro. La descripción lleva el alcance, los criterios de aceptación con la evidencia de las pruebas, los cambios de configuración, datos o migraciones, y los riesgos con la forma de revertir. Si se introdujo un patrón de diseño, dice cuál y qué necesidad concreta lo justifica. Si la tarea es parte de un plan, el PR dice de qué feature es y qué tareas faltan.
 
-Con el PR abierto, esta sesión terminó: lo que siga va en otra.
+Con el PR abierto, esta sesión terminó: lo que siga va en otra. Las correcciones de la revisión van a esa misma rama y ese mismo PR.
 
 ## Resumen final
 Antes de mostrarlo, si hay engram: guardá con `mem_save` lo que los agentes marcaron **Para memoria**, valga la pena y no hayas guardado ya, y cerrá con `mem_session_summary`.

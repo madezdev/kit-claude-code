@@ -43,6 +43,7 @@ Listo. Revisá y commiteá en una rama (no en main ni develop):
 
 Si es la primera vez en este repo:
   - Agregá al CLAUDE.md la rama de integración (destino de los PRs) y los comandos reales.
+  - Si el repo se aparta de ESTRATEGIA-GIT.md del kit (ramas, ambientes, hotfix), anotá en qué.
   - Sumá las reglas de calidad al final de cada eslint.config:
       import calidad from "<ruta>/eslint.calidad.mjs";  export default [...config, ...calidad];
   - Guardá las violaciones que ya existen como línea base (solo se bloquea lo nuevo):
