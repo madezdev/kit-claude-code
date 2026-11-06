@@ -35,7 +35,7 @@ Vos solo aprobás el plan y mergeás el PR.
 Si la feature no entra en un PR (~400 líneas de diff), el plan sale como una lista de tareas, cada una con un brief que se entiende solo. La sesión del plan hace la primera; cada una de las demás va en una sesión nueva con `/feature <brief>`.
 
 ## Consumo
-Cada llamada al modelo relee todo el contexto de la sesión, así que el costo crece con su largo: una sesión de 500 llamadas gasta mucho más que cinco de 100. Por eso el kit pide una tarea por sesión y un PR por tarea, y los revisores corren solo si el diff toca lo suyo. Para medirlo:
+Cada llamada al modelo relee todo el contexto de la sesión, así que el costo crece con su largo: una sesión de 500 llamadas gasta mucho más que cinco de 100. Por eso el kit pide una tarea por sesión y un PR por tarea, respuestas y reportes cortos (el resultado primero, sin relleno ni volcados), y los revisores corren solo si el diff toca lo suyo. Para medirlo:
 ```bash
 node ~/.claude/checks/consumo.js --dias 7 --proyecto ~/ruta/proyecto
 ```
