@@ -33,7 +33,7 @@ Estrategia por defecto (el detalle está en el agente **git**). Si el CLAUDE.md 
 - **Un PR por funcionalidad y por repo.** Los avances, tests y correcciones de revisión son commits en la misma rama y el mismo PR, aunque lleguen en otra sesión: mientras ese PR siga abierto, no se abre otro.
 - **Un PR mergeado está terminado.** Un defecto que aparece después va en un PR de fix nuevo, con una rama nueva desde la de integración actualizada.
 - **Ramas**: `feat/` y `fix/` salen de la rama de integración y vuelven a ella. `release/<versión>` sale de un commit de integración validado en QA y va a producción (`main`), y solo recibe correcciones. `hotfix/` sale de `main`, vuelve a `main` y después se reintegra en la rama de integración y en la release activa.
-- **El humano** valida en QA y stage, mergea, etiqueta y despliega. Los agentes preparan las ramas, los PRs y los comandos.
+- **El humano** valida en los ambientes que tenga el proyecto (QA, stage), mergea, etiqueta y despliega. Los agentes preparan las ramas, los PRs y los comandos.
 
 ## Coordinación (sin trabajo duplicado ni pisado)
 - Dos agentes en paralelo nunca editan los mismos archivos: el plan del arquitecto asigna archivos a cada uno, y si dos partes se superponen, van en secuencia.
