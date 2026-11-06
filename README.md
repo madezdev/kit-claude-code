@@ -4,7 +4,7 @@
 - **14 agentes:** antecedentes, investigador, arquitecto, backend, frontend, infraestructura, tester, refactorizador, qa-revisor, revisor-seguridad, seguridad, depurador, documentador, git.
 - **4 skills:** `/feature` (flujo completo hasta el PR; una feature grande la parte en tareas de un PR cada una), `revisar-pr`, `revision-diaria` y `auditoria-semanal` (estas tres, para routines).
 - **4 hooks:**
-  - `guardia.js`: bloquea infra real, deploys, merges, aprobaciones de PR, lectura de secretos y push a main y demás ramas protegidas (incluidos un `git push` sin rama estando en una de ellas, `--all`/`--branches`/`--mirror` y el push que corre como texto dentro de `bash -c`, `eval`, un heredoc o un intérprete, que revisa con `shell-anidado.js`). El merge también se bloquea por la API de GitHub y por su MCP.
+  - `guardia.js`: bloquea infra real, deploys, merges, aprobaciones de PR, lectura de secretos y push a main y demás ramas protegidas (incluidos un `git push` sin rama estando en una de ellas, `--all`/`--branches`/`--mirror` y el push que corre como texto dentro de `bash -c`, `eval`, un heredoc o un intérprete, que revisa con `shell-anidado.js`). El merge también se bloquea por la API de GitHub y por su MCP. Falla cerrada: un comando largo que no termina de revisarse en 3 s se bloquea, porque un hook que se pasa del timeout no frena nada.
   - `tamanio.js`: avisa a las 400 líneas y bloquea a las 600, antes de escribir (en tests, 600 y 800).
   - `complejidad.js`: antes de escribir JS/TS, bloquea si la edición suma funciones con complejidad > 10, anidamiento > 4 o más de 60 líneas.
   - `pre-pr.js`: antes de abrir un PR corre `pnpm audit` (high/critical), Semgrep, gitleaks y ESLint, y bloquea si algo falla.

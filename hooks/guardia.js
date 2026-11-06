@@ -7,14 +7,19 @@
  *
  * Cada regla tiene un `id`: el bloqueo se anota en guardia.log y en jarvis-brain (ver jarvis.js).
  *
+ * Falla cerrada: un hook que se pasa del timeout no bloquea, así que un comando largo se
+ * revisa en un worker con presupuesto de tiempo y, si no termina, se bloquea.
+ *
  * Desactivar temporalmente: lanzar Claude con  CLAUDE_GUARDIA_OFF=1 claude
  * (Claude no puede setearla él mismo: el hook lee el entorno de Claude Code,
- * no el de sus comandos). GUARDIA_LOG cambia la ruta del log (para pruebas).
+ * no el de sus comandos). GUARDIA_LOG cambia la ruta del log y GUARDIA_PRESUPUESTO_MS
+ * el presupuesto del worker (para pruebas).
  */
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
+const { Worker, isMainThread, parentPort, workerData } = require("worker_threads");
 const { cederAlProyecto, leerEntrada, segmentos, tokens } = require("./comun.js");
 const { registrarBloqueo } = require("./jarvis.js");
 const { anidadosDe, partirHeredocs, redDePush, RAMAS_PROTEGIDAS } = require("./shell-anidado.js");
@@ -105,7 +110,9 @@ const REGLAS_BASH = [
   { id: "db-borrado", re: /\bdropdb\b|\bmongosh?\b.*\.drop(Database)?\(|\bredis-cli\b.*\bFLUSH(ALL|DB)\b/i, msg: "Borrado de base de datos." },
 
   // --- Sistema / secretos locales ---
-  { id: "rm-rf-amplio", re: /\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*(r[a-zA-Z]*f|f[a-zA-Z]*r)[a-zA-Z]*\s+(\/|~|\$HOME|\.\.?|\*)(\/?\s|\/?$)/, msg: "rm -rf sobre raíz, home o directorio completo." },
+  // Lookaheads en vez de r…f|f…r entre [a-zA-Z]*: la forma anterior tardaba segundos (backtracking cúbico)
+  // con un flag largo, y el hook se pasaba del timeout.
+  { id: "rm-rf-amplio", re: /\brm\s+(-[a-zA-Z]*\s+)*-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]+\s+(\/|~|\$HOME|\.\.?|\*)(\/?\s|\/?$)/, msg: "rm -rf sobre raíz, home o directorio completo." },
   { id: "lee-env", re: /\b(cat|less|more|head|tail|bat|type|grep|sed|awk|cp|scp|base64|xxd|strings)\b[^|;&]*(\s|\/|^)\.env(\.(?!example|sample|template)[\w.-]+)?(\s|$)/, msg: "Lectura de archivo .env con secretos. Usá .env.example." },
   { id: "lee-credenciales", re: /\b(cat|less|more|head|tail|bat|cp|scp|base64)\b[^|;&]*(id_rsa|id_ed25519|\.pem\b|\.pfx\b|\.p12\b|\.key\b|\.aws\/credentials|\.azure\/|\.kube\/config|\.tfstate\b)/, msg: "Lectura de claves/credenciales locales." },
   { id: "volcado-env", re: VOLCADO_ENV, msg: "Volcado de variables de entorno (puede exponer secretos)." },
@@ -136,11 +143,14 @@ function revisarArchivo(tool, filePath) {
  * contexto (opcional): { cwd, rama, ramaEn(dir) } para evaluar los git push contra la rama actual.
  */
 function revisarBash(cmd, contexto) {
+  // El push va primero, para que ninguna regla lenta lo deje para después del timeout.
+  // Red de seguridad: un push que corre como texto (bash -c, eval, heredoc a un shell, intérprete).
+  const push = revisarGit(cmd, contexto) || { force: FORCE, protegida: PROTEGIDA }[redDePush(cmd)];
+  if (push) return push;
   for (const r of REGLAS_BASH) {
     if (r.re.test(cmd) && !(r.allow && r.allow.test(cmd))) return { id: r.id, msg: r.msg };
   }
-  // Red de seguridad: un push que corre como texto (bash -c, eval, heredoc a un shell, intérprete).
-  return revisarGit(cmd, contexto) || { force: FORCE, protegida: PROTEGIDA }[redDePush(cmd)] || null;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,20 +331,46 @@ const detalleDe = ({ tool_name: tool, tool_input: ti = {} }) =>
 // Exportado para tests
 module.exports = { revisarBash, revisarArchivo, motivoDe, REGLAS_BASH };
 
-if (require.main === module) {
+// Comandos largos: se revisan en un worker y, si no terminan dentro del presupuesto, se bloquean.
+// El presupuesto queda muy por debajo del timeout del hook (10 s).
+const LARGO_CON_PRESUPUESTO = 2000;
+const PRESUPUESTO_MS = Number(process.env.GUARDIA_PRESUPUESTO_MS) || 3000;
+const SIN_TIEMPO = { id: "guardia-sin-tiempo", msg: "La guardia no terminó de revisar el comando a tiempo. Partilo en comandos más chicos." };
+
+/** Llama a alTerminar con el motivoDe(data), o con SIN_TIEMPO si un comando largo no se termina de revisar a tiempo. */
+function motivoConPresupuesto(data, alTerminar) {
+  const cmd = (data.tool_input || {}).command || "";
+  if (data.tool_name !== "Bash" || cmd.length <= LARGO_CON_PRESUPUESTO) return alTerminar(motivoDe(data));
+  let listo = false;
+  const terminar = (motivo) => {
+    if (listo) return;
+    listo = true;
+    alTerminar(motivo);
+  };
+  const worker = new Worker(__filename, { workerData: data });
+  const corte = setTimeout(() => terminar(SIN_TIEMPO), PRESUPUESTO_MS);
+  worker.once("message", (motivo) => { clearTimeout(corte); terminar(motivo); });
+  worker.once("error", () => { clearTimeout(corte); terminar(SIN_TIEMPO); });
+}
+
+function bloquear(motivo, data) {
+  log(`BLOQUEADO [${data.tool_name}] ${detalleDe(data)} :: ${motivo.id} :: ${motivo.msg}`);
+  registrarBloqueo({ fuente: "guardia", regla: motivo.id, motivo: motivo.msg, data });
+  process.stderr.write(
+    `🛑 Bloqueado por guardia (${motivo.id}): ${motivo.msg}\n` +
+    `No intentes rodearlo con otro comando equivalente. ` +
+    `Si es necesario, dejá el comando exacto listo y explicale al usuario qué hace, para que lo ejecute él.\n`
+  );
+  process.exit(2);
+}
+
+if (!isMainThread && workerData && workerData.tool_name) parentPort.postMessage(motivoDe(workerData));
+
+if (require.main === module && isMainThread) {
   if (process.env.CLAUDE_GUARDIA_OFF === "1") process.exit(0);
 
   leerEntrada((data) => {
     if (cederAlProyecto(__filename, data.cwd)) process.exit(0);
-    const motivo = motivoDe(data);
-    if (!motivo) process.exit(0);
-    log(`BLOQUEADO [${data.tool_name}] ${detalleDe(data)} :: ${motivo.id} :: ${motivo.msg}`);
-    registrarBloqueo({ fuente: "guardia", regla: motivo.id, motivo: motivo.msg, data });
-    process.stderr.write(
-      `🛑 Bloqueado por guardia (${motivo.id}): ${motivo.msg}\n` +
-      `No intentes rodearlo con otro comando equivalente. ` +
-      `Si es necesario, dejá el comando exacto listo y explicale al usuario qué hace, para que lo ejecute él.\n`
-    );
-    process.exit(2);
+    motivoConPresupuesto(data, (motivo) => (motivo ? bloquear(motivo, data) : process.exit(0)));
   });
 }
